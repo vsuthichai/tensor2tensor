@@ -494,14 +494,14 @@ class T2TModel(base.Layer):
         target_modality = target_modality["targets"]
       return self._loss_single(logits, target_modality, features["targets"])
 
-  def optimize(self, loss, num_async_replicas=1, use_tpu=False):
+  def optimize(self, loss, num_async_replicas=1, use_tpu=False, use_hvd=False):
     """Return a training op minimizing loss."""
     lr = learning_rate.learning_rate_schedule(self.hparams)
     if num_async_replicas > 1:
       log_info("Dividing learning rate by num_async_replicas: %d",
                num_async_replicas)
     lr /= math.sqrt(float(num_async_replicas))
-    train_op = optimize.optimize(loss, lr, self.hparams, use_tpu=use_tpu)
+    train_op = optimize.optimize(loss, lr, self.hparams, use_tpu=use_tpu, use_hvd=use_hvd)
     return train_op
 
   def set_mode(self, mode):
@@ -1232,6 +1232,7 @@ class T2TModel(base.Layer):
     hparams = copy.deepcopy(hparams)
 
     use_tpu = params and params.get("use_tpu", False)
+    use_hvd = params and params.get("use_hvd", False)
     # Instantiate model
     data_parallelism = None
     if not use_tpu and config:
@@ -1300,7 +1301,7 @@ class T2TModel(base.Layer):
     num_async_replicas = (1 if (use_tpu or not config) else
                           config.t2t_device_info["num_async_replicas"])
     return model.estimator_spec_train(
-        loss, num_async_replicas=num_async_replicas, use_tpu=use_tpu)
+        loss, num_async_replicas=num_async_replicas, use_tpu=use_tpu, use_hvd=use_hvd)
 
   def initialize_from_ckpt(self, ckpt_dir):
     model_dir = self._hparams.get("model_dir", None)
@@ -1322,10 +1323,10 @@ class T2TModel(base.Layer):
             "Cannot find variable in checkpoint, skipping: %s", var_name)
     tf.train.init_from_checkpoint(ckpt_dir, variable_map)
 
-  def estimator_spec_train(self, loss, num_async_replicas=1, use_tpu=False):
+  def estimator_spec_train(self, loss, num_async_replicas=1, use_tpu=False, use_hvd=False):
     """Construct EstimatorSpec for TRAIN mode."""
     train_op = self.optimize(loss, num_async_replicas=num_async_replicas,
-                             use_tpu=use_tpu)
+                             use_tpu=use_tpu, use_hvd=use_hvd)
 
     if self._hparams.warm_start_from:
       self.initialize_from_ckpt(self._hparams.warm_start_from)

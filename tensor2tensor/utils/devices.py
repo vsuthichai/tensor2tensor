@@ -21,6 +21,7 @@ import inspect
 from tensor2tensor.utils import expert_utils as eu
 import tensorflow as tf
 
+import horovod.tensorflow as hvd
 
 def data_parallelism_from_flags(daisy_chain_variables=True, all_workers=False):
   """Over which devices do we split each training batch.
@@ -71,7 +72,8 @@ def data_parallelism(daisy_chain_variables=True,
                      gpu_order="",
                      locally_shard_to_cpu=False,
                      worker_job="/job:localhost",
-                     no_data_parallelism=False):
+                     no_data_parallelism=False,
+                     use_hvd=False):
   """See data_parallelism_from_flags."""
   tf.logging.info("schedule=%s" % schedule)
   tf.logging.info("worker_gpu=%s" % worker_gpu)
@@ -135,6 +137,9 @@ def data_parallelism(daisy_chain_variables=True,
   if no_data_parallelism:
     datashard_devices = [""]
     caching_devices = None
+  elif use_hvd:
+    datashard_devices = ["gpu:" + str(hvd.local_rank())]
+    caching_devices = None
   elif is_single_machine:
     tf.logging.warn(
         "Schedule=%s. Assuming that training is running on a single machine.",
@@ -167,11 +172,17 @@ def data_parallelism(daisy_chain_variables=True,
     else:
       datashard_devices = [_replica_device_setter(worker_job)]
       caching_devices = None
+
+  if use_hvd:
+      _ps_devices = datashard_devices
+  else:
+      _ps_devices = ps_devices(all_workers=all_workers)
+
   tf.logging.info("datashard_devices: %s", datashard_devices)
   tf.logging.info("caching_devices: %s", caching_devices)
-  tf.logging.info("ps_devices: %s", ps_devices(all_workers=all_workers))
+  tf.logging.info("ps_devices: %s", _ps_devices)
   return eu.Parallelism(
       datashard_devices,
       caching_devices=caching_devices,
       daisy_chain_variables=daisy_chain_variables,
-      ps_devices=ps_devices(all_workers=all_workers))
+      ps_devices=_ps_devices)

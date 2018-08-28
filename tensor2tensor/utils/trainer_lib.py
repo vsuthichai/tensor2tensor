@@ -34,6 +34,7 @@ import tensorflow as tf
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python import debug
 
+import horovod.tensorflow as hvd
 
 def next_checkpoint(model_dir, timeout_mins=120):
   """Yields successive checkpoints from model_dir."""
@@ -54,6 +55,7 @@ def create_session_config(log_device_placement=False,
                           enable_graph_rewriter=False,
                           gpu_mem_fraction=0.95,
                           use_tpu=False,
+                          use_hvd=False,
                           inter_op_parallelism_threads=0,
                           intra_op_parallelism_threads=0):
   """The TensorFlow Session config to use."""
@@ -71,13 +73,23 @@ def create_session_config(log_device_placement=False,
 
   gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=gpu_mem_fraction)
 
-  config = tf.ConfigProto(
-      allow_soft_placement=True,
-      graph_options=graph_options,
-      gpu_options=gpu_options,
-      log_device_placement=log_device_placement,
-      inter_op_parallelism_threads=inter_op_parallelism_threads,
-      intra_op_parallelism_threads=intra_op_parallelism_threads)
+  if use_hvd:
+      gpu_options.visible_device_list = str(hvd.local_rank())
+
+  config_proto_args = {
+      'allow_soft_placement': True,
+      'graph_options': graph_options,
+      'gpu_options': gpu_options,
+      'log_device_placement': log_device_placement,
+      'inter_op_parallelism_threads': inter_op_parallelism_threads,
+      'intra_op_parallelism_threads': intra_op_parallelism_threads
+  }
+
+  if use_hvd:
+    config_proto_args['device_count'] = {"GPU": 1}
+
+  config = tf.ConfigProto(**config_proto_args)
+
   return config
 
 
@@ -130,6 +142,7 @@ def create_run_config(master="",
                       sync=False,
                       tpu_infeed_sleep_secs=None,
                       use_tpu=False,
+                      use_hvd=False,
                       use_tpu_estimator=False,
                       inter_op_parallelism_threads=0,
                       log_step_count_steps=100,
@@ -142,14 +155,15 @@ def create_run_config(master="",
       enable_graph_rewriter=enable_graph_rewriter,
       gpu_mem_fraction=gpu_mem_fraction,
       use_tpu=use_tpu,
+      use_hvd=use_hvd,
       inter_op_parallelism_threads=inter_op_parallelism_threads,
       intra_op_parallelism_threads=intra_op_parallelism_threads)
   run_config_args = {
       "master": master,
       "evaluation_master": master,
-      "model_dir": model_dir,
+      "model_dir": None if use_hvd and hvd.rank() != 0 else model_dir,
       "session_config": session_config,
-      "save_summary_steps": 100,
+      "save_summary_steps": 100 if not use_hvd or hvd.rank() == 0 else None,
       "save_checkpoints_steps": save_checkpoints_steps,
       "save_checkpoints_secs": save_checkpoints_secs,
       "keep_checkpoint_max": keep_checkpoint_max,
@@ -216,7 +230,8 @@ def create_run_config(master="",
         gpu_order=gpu_order,
         locally_shard_to_cpu=shard_to_cpu,
         worker_job=worker_job,
-        no_data_parallelism=no_data_parallelism)
+        no_data_parallelism=no_data_parallelism,
+        use_hvd=use_hvd)
 
   return config
 
@@ -227,6 +242,7 @@ def create_estimator(model_name,
                      schedule="train_and_evaluate",
                      decode_hparams=None,
                      use_tpu=False,
+                     use_hvd=False,
                      use_tpu_estimator=False,
                      use_xla=False):
   """Create a T2T Estimator."""
@@ -253,10 +269,13 @@ def create_estimator(model_name,
         eval_batch_size=batch_size if "eval" in schedule else None,
         predict_batch_size=predict_batch_size)
   else:
+    params = {}
+    params['use_hvd'] = use_hvd
     estimator = tf.estimator.Estimator(
         model_fn=model_fn,
         model_dir=run_config.model_dir,
         config=run_config,
+        params=params
     )
   return estimator
 
@@ -426,6 +445,7 @@ def create_experiment(
     eval_early_stopping_metric_minimize=True,
     autotune=False,
     use_tpu=False,
+    use_hvd=False,
     use_tpu_estimator=False,
     use_xla=False,
     additional_train_hooks=None,
@@ -449,6 +469,7 @@ def create_experiment(
       schedule=schedule,
       decode_hparams=decode_hparams,
       use_tpu=use_tpu,
+      use_hvd=use_hvd,
       use_tpu_estimator=use_tpu_estimator,
       use_xla=use_xla)
 
@@ -482,7 +503,7 @@ def create_experiment(
       early_stopping_metric_minimize=eval_early_stopping_metric_minimize)
   dbgprofile_kwargs = {"output_dir": run_config.model_dir}
   early_stopping_kwargs = dict(
-      events_dir=os.path.join(run_config.model_dir, "eval_continuous"),
+      events_dir=os.path.join(run_config.model_dir, "eval_continuous") if run_config.model_dir else None,
       tag=eval_early_stopping_metric,
       num_plateau_steps=eval_early_stopping_steps,
       plateau_decrease=eval_early_stopping_metric_minimize,
@@ -517,6 +538,8 @@ def create_experiment(
     train_hooks += additional_train_hooks
   if additional_eval_hooks:
     eval_hooks += additional_eval_hooks
+  if use_hvd:
+    train_hooks.append(hvd.BroadcastGlobalVariablesHook(0))
 
   train_hooks = tf.contrib.learn.monitors.replace_monitors_with_hooks(
       train_hooks, estimator)

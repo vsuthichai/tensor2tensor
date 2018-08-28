@@ -26,9 +26,10 @@ from tensor2tensor.utils import yellowfin
 import tensorflow as tf
 
 from tensorflow.python.framework import dtypes
+import horovod.tensorflow as hvd
 
 
-def optimize(loss, learning_rate, hparams, use_tpu=False):
+def optimize(loss, learning_rate, hparams, use_tpu=False, use_hvd=False):
   """Minimize loss."""
   loss = weight_decay_and_noise(loss, hparams, learning_rate)
   loss = tf.identity(loss, name="total_loss")
@@ -43,6 +44,8 @@ def optimize(loss, learning_rate, hparams, use_tpu=False):
   opt = ConditionalOptimizer(hparams.optimizer, learning_rate, hparams, use_tpu)
   if use_tpu:
     opt = tf.contrib.tpu.CrossShardOptimizer(opt)
+  elif use_hvd:
+    opt = hvd.DistributedOptimizer(opt)
 
   opt_summaries = []
   if common_layers.should_generate_summaries():
