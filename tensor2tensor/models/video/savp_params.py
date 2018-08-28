@@ -17,14 +17,14 @@
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor.models.research import next_frame_sv2p_params
+from tensor2tensor.models.video import sv2p_params
 from tensor2tensor.utils import registry
 
 
 @registry.register_hparams
 def next_frame_savp():
   """SAVP model hparams."""
-  hparams = next_frame_sv2p_params.next_frame_sv2p()
+  hparams = sv2p_params.next_frame_sv2p()
   hparams.add_hparam("z_dim", 8)
   hparams.add_hparam("num_discriminator_filters", 32)
   hparams.add_hparam("use_vae", True)
@@ -36,6 +36,6 @@ def next_frame_savp():
   hparams.add_hparam("gan_optimization", "joint")
   hparams.target_modality = "video:l1raw"
   hparams.input_modalities = "inputs:video:l1raw"
-  hparams.latent_loss_multiplier_schedule = "linear_anneal"
+  hparams.latent_loss_multiplier_schedule = "linear"
   hparams.upsample_method = "bilinear_upsample_conv"
   return hparams

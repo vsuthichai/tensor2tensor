@@ -28,9 +28,11 @@ from functools import partial
 
 from tensor2tensor.layers import common_layers
 from tensor2tensor.layers import common_video
-from tensor2tensor.models.research import next_frame_basic_stochastic
-from tensor2tensor.models.research import next_frame_sv2p_params  # pylint: disable=unused-import
+
+from tensor2tensor.models.video import basic_stochastic
+from tensor2tensor.models.video import sv2p_params  # pylint: disable=unused-import
 from tensor2tensor.utils import registry
+
 import tensorflow as tf
 
 tfl = tf.layers
@@ -38,7 +40,7 @@ tfcl = tf.contrib.layers
 
 
 @registry.register_model
-class NextFrameSv2p(next_frame_basic_stochastic.NextFrameBasicStochastic):
+class NextFrameSv2p(basic_stochastic.NextFrameBasicStochastic):
   """Stochastic Variational Video Prediction."""
 
   def tinyify(self, array):
@@ -225,12 +227,10 @@ class NextFrameSv2p(next_frame_basic_stochastic.NextFrameBasicStochastic):
 
     with tf.variable_scope("reward_pred", reuse=tf.AUTO_REUSE):
       x = tf.concat(input_images, axis=3)
-      x = tfcl.batch_norm(x, updates_collections=None,
-                          is_training=self.is_training, scope="reward_bn0")
+      x = tfcl.layer_norm(x)
       x = tfl.conv2d(x, conv_size[1], [3, 3], strides=(2, 2),
                      activation=tf.nn.relu, name="reward_conv1")
-      x = tfcl.batch_norm(x, updates_collections=None,
-                          is_training=self.is_training, scope="reward_bn1")
+      x = tfcl.layer_norm(x)
 
       # Inject additional inputs
       if action is not None:
@@ -246,8 +246,7 @@ class NextFrameSv2p(next_frame_basic_stochastic.NextFrameBasicStochastic):
 
       x = tfl.conv2d(x, conv_size[2], [3, 3], strides=(2, 2),
                      activation=tf.nn.relu, name="reward_conv2")
-      x = tfcl.batch_norm(x, updates_collections=None,
-                          is_training=self.is_training, scope="reward_bn2")
+      x = tfcl.layer_norm(x)
       x = tfl.conv2d(x, conv_size[3], [3, 3], strides=(2, 2),
                      activation=tf.nn.relu, name="reward_conv3")
       return x

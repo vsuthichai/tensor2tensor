@@ -21,7 +21,6 @@ from __future__ import print_function
 
 import io
 import os
-import matplotlib.pyplot as plt
 import numpy as np
 from tensor2tensor.data_generators import generator_utils
 from tensor2tensor.data_generators import problem
@@ -31,6 +30,13 @@ from tensor2tensor.utils import metrics
 from tensor2tensor.utils import registry
 
 import tensorflow as tf
+
+
+def matplotlib_pyplot():
+  import matplotlib  # pylint: disable=g-import-not-at-top
+  matplotlib.use("agg")
+  import matplotlib.pyplot as plt  # pylint: disable=g-import-not-at-top
+  return plt
 
 
 def image_to_tf_summary_value(image, tag):
@@ -45,7 +51,7 @@ def image_to_tf_summary_value(image, tag):
   curr_image = np.asarray(image, dtype=np.uint8)
   height, width, n_channels = curr_image.shape
   s = io.BytesIO()
-  plt.imsave(s, curr_image, format="png")
+  matplotlib_pyplot().imsave(s, curr_image, format="png")
   img_sum = tf.Summary.Image(encoded_image_string=s.getvalue(),
                              height=height, width=width,
                              colorspace=n_channels)
@@ -307,7 +313,7 @@ class Image2TextProblem(ImageProblem):
     raise NotImplementedError()
 
   @property
-  def targeted_vocab_size(self):
+  def vocab_problem(self):
     raise NotImplementedError()  # Not needed if self.is_character_level.
 
   @property
@@ -339,7 +345,7 @@ class Image2TextProblem(ImageProblem):
       encoder = text_encoder.ByteTextEncoder()
     else:
       vocab_filename = os.path.join(
-          data_dir, "vocab.ende.%d" % self.targeted_vocab_size)
+          data_dir, self.vocab_problem.vocab_filename)
       encoder = text_encoder.SubwordTextEncoder(vocab_filename)
     input_encoder = text_encoder.ImageEncoder(channels=self.num_channels)
     return {"inputs": input_encoder, "targets": encoder}

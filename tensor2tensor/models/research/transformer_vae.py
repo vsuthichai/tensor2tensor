@@ -354,7 +354,10 @@ def ae_transformer_internal(inputs,
     if hparams.task == "image":
       cia.maybe_reshape_4d_to_3d(targets)
     if hparams.task == "translate":
-      max_targets_len_from_inputs = tf.concat([inputs, inputs], axis=1)
+      if inputs is not None:
+        max_targets_len_from_inputs = tf.concat([inputs, inputs], axis=1)
+      else:
+        max_targets_len_from_inputs = targets
     else:
       assert hparams.task == "image"
       max_targets_len_from_inputs = targets
@@ -415,7 +418,7 @@ def ae_transformer_internal(inputs,
                 mode=hparams.mode,
                 name="vc")
           return bn
-        inputs_c = bn_inputs
+        inputs_c = bn_inputs()
         ptc = 1.0 - common_layers.inverse_lin_decay(200000) * 0.5
         ptc = ptc if hparams.mode == tf.estimator.ModeKeys.TRAIN else 1.0
         latents_dense = tf.where(tf.less(tf.random_uniform([batch_size]), ptc),
@@ -454,7 +457,7 @@ def ae_transformer_internal(inputs,
     for i in range(hparams.num_compress_steps):
       j = hparams.num_compress_steps - i - 1
       d = residual_conv(d, 1, (3, 1), hparams, "decompress_rc_%d" % j)
-      if hparams.do_attend_decompress:
+      if inputs is not None and hparams.do_attend_decompress:
         d = attend(d, inputs, hparams, "decompress_attend_%d" % j)
       d = decompress_step(d, hparams, i > 0, False, "decompress_%d" % j)
 
@@ -497,6 +500,11 @@ def ae_transformer_internal(inputs,
     latent_time = tf.less(nonlatent_steps,
                           tf.to_int32(tf.train.get_global_step()))
     losses["latent_pred"] *= tf.to_float(latent_time)
+
+  # res was generated from padded targets, which means it has some extra
+  # elements. These can cause shape problems when computing loss with respect to
+  # the original (unpadded) targets. So we remove their extra elements here.
+  res = res[:, :original_targets_shape[1], :, :]
   return res, losses, cache
 
 
@@ -653,15 +661,24 @@ class TransformerAE(t2t_model.T2TModel):
     if "partial_targets" in features:
       initial_output = tf.convert_to_tensor(features["partial_targets"])
     else:
-      batch_size = common_layers.shape_list(features["inputs"])[0]
-      length = common_layers.shape_list(features["inputs"])[1]
+      # inputs might not be present in features (e.g.: language modeling),
+      # in which case we fallback to 'infer_targets' for calculating initial
+      # input shape, type, etc.
+      inputs_or_targets = features.get("inputs", features["infer_targets"])
+      batch_size = common_layers.shape_list(inputs_or_targets)[0]
+      length = common_layers.shape_list(inputs_or_targets)[1]
+      hidden_dim = common_layers.shape_list(inputs_or_targets)[-1]
       target_length = tf.to_int32(2.0 * tf.to_float(length))
-      initial_output = tf.zeros((batch_size, target_length, 1, 1),
-                                dtype=tf.int64)
+      initial_output = tf.zeros((batch_size, target_length, 1, hidden_dim),
+                                dtype=inputs_or_targets.dtype)
 
     features["targets"] = initial_output
     logits, _ = self(features)  # pylint: disable=not-callable
-    samples = tf.argmax(logits, axis=-1)
+    # this should only happen if we're doing target_modality not real
+    if inputs_or_targets.dtype == tf.float32:
+      samples = logits
+    else:
+      samples = tf.argmax(logits, axis=-1)
 
     # More steps.
     self.predict_mask = 0.0  # Use the provided targets this time.
@@ -670,7 +687,12 @@ class TransformerAE(t2t_model.T2TModel):
       with tf.variable_scope(tf.get_variable_scope(), reuse=True):
         features["targets"] = samples
         logits, _ = self(features)  # pylint: disable=not-callable
-        samples = tf.argmax(logits, axis=-1)
+        if inputs_or_targets.dtype == tf.float32:
+          # When target_modality is real, the last axis does not represent
+          # classes, so it should not be argmax'ed
+          samples = logits
+        else:
+          samples = tf.argmax(logits, axis=-1)
 
     self.predict_mask = 1.0
     if inputs_old is not None:  # Restore to not confuse Estimator.

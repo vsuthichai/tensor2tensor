@@ -17,14 +17,14 @@
 from __future__ import division
 from __future__ import print_function
 
-from tensor2tensor.models.research import next_frame_basic_stochastic
+from tensor2tensor.models.video import basic_stochastic
 from tensor2tensor.utils import registry
 
 
 @registry.register_hparams
 def next_frame_sv2p():
   """SV2P model hparams."""
-  hparams = next_frame_basic_stochastic.next_frame_basic_stochastic()
+  hparams = basic_stochastic.next_frame_basic_stochastic()
   hparams.optimizer = "TrueAdam"
   hparams.learning_rate_schedule = "constant"
   hparams.learning_rate_constant = 1e-3
@@ -52,6 +52,23 @@ def next_frame_sv2p():
 
 
 @registry.register_hparams
+def next_frame_sv2p_atari():
+  """SV2P model for atari."""
+  hparams = next_frame_sv2p()
+  hparams.video_num_input_frames = 4
+  hparams.video_num_target_frames = 4
+  hparams.concatenate_actions = False
+  hparams.num_iterations_1st_stage = 15000
+  hparams.num_iterations_2nd_stage = 15000
+  hparams.latent_loss_multiplier_schedule = "noisy_linear_cosine_decay"
+  hparams.latent_loss_multiplier = 1e-3
+  hparams.anneal_end = 50000
+  hparams.preprocess_resize_frames = [96, 96]
+  hparams.information_capacity = 0.0
+  return hparams
+
+
+@registry.register_hparams
 def next_frame_sv2p_tiny():
   """Tiny SV2P model."""
   hparams = next_frame_sv2p()
@@ -72,4 +89,3 @@ def next_frame_sv2p_cutoff():
   hparams.video_num_input_frames = 4
   hparams.video_num_target_frames = 1
   return hparams
-
