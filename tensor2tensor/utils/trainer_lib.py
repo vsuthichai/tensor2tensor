@@ -34,7 +34,6 @@ import tensorflow as tf
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python import debug
 
-import horovod.tensorflow as hvd
 
 def next_checkpoint(model_dir, timeout_mins=120):
   """Yields successive checkpoints from model_dir."""
@@ -158,12 +157,15 @@ def create_run_config(master="",
       use_hvd=use_hvd,
       inter_op_parallelism_threads=inter_op_parallelism_threads,
       intra_op_parallelism_threads=intra_op_parallelism_threads)
+  if use_hvd:
+    import horovod.tensorflow as hvd
   run_config_args = {
       "master": master,
       "evaluation_master": master,
       "model_dir": None if use_hvd and hvd.rank() != 0 else model_dir,
       "session_config": session_config,
       "save_summary_steps": 100 if not use_hvd or hvd.rank() == 0 else None,
+      #"save_summary_steps": 100,
       "save_checkpoints_steps": save_checkpoints_steps,
       "save_checkpoints_secs": save_checkpoints_secs,
       "keep_checkpoint_max": keep_checkpoint_max,
