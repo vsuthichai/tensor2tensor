@@ -33,7 +33,6 @@ from tensor2tensor.utils import usr_dir
 import tensorflow as tf
 
 from tensorflow.contrib.tpu.python.tpu import tpu_config
-import horovod.tensorflow as hvd
 
 flags = tf.flags
 FLAGS = flags.FLAGS
@@ -392,6 +391,7 @@ def main(argv):
   hparams = create_hparams()
 
   if FLAGS.use_hvd:
+    import horovod.tensorflow as hvd
     hvd.init()
 
   with maybe_cloud_tpu():
