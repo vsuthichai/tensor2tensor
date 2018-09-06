@@ -26,7 +26,6 @@ from tensor2tensor.utils import yellowfin
 import tensorflow as tf
 
 from tensorflow.python.framework import dtypes
-import horovod.tensorflow as hvd
 
 
 def optimize(loss, learning_rate, hparams, use_tpu=False, use_hvd=False):
@@ -45,6 +44,7 @@ def optimize(loss, learning_rate, hparams, use_tpu=False, use_hvd=False):
   if use_tpu:
     opt = tf.contrib.tpu.CrossShardOptimizer(opt)
   elif use_hvd:
+    import horovod.tensorflow as hvd
     opt = hvd.DistributedOptimizer(opt)
 
   opt_summaries = []
