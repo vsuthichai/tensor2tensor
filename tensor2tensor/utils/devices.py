@@ -21,7 +21,6 @@ import inspect
 from tensor2tensor.utils import expert_utils as eu
 import tensorflow as tf
 
-import horovod.tensorflow as hvd
 
 def data_parallelism_from_flags(daisy_chain_variables=True, all_workers=False):
   """Over which devices do we split each training batch.
@@ -138,6 +137,7 @@ def data_parallelism(daisy_chain_variables=True,
     datashard_devices = [""]
     caching_devices = None
   elif use_hvd:
+    import horovod.tensorflow as hvd
     datashard_devices = ["gpu:" + str(hvd.local_rank())]
     caching_devices = None
   elif is_single_machine:
